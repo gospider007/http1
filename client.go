@@ -106,15 +106,22 @@ func removeZone(host string) string {
 	}
 	return host[:j] + host[i:]
 }
+
 func (obj *clientConn) httpWrite(req *http.Request, rawHeaders http.Header, orderHeaders []interface {
 	Key() string
 	Val() any
 }) (err error) {
-	defer func() {
-		if err != nil {
-			obj.CloseWithError(tools.WrapError(err, "failed to send request body"))
-		}
-	}()
+	err = HttpWrite(req, obj.w, rawHeaders, orderHeaders)
+
+	if err != nil {
+		obj.CloseWithError(tools.WrapError(err, "failed to send request body"))
+	}
+	return
+}
+func HttpWrite(req *http.Request, w *bufio.Writer, rawHeaders http.Header, orderHeaders []interface {
+	Key() string
+	Val() any
+}) (err error) {
 	host := req.Host
 	if host == "" {
 		host = req.URL.Host
@@ -141,23 +148,23 @@ func (obj *clientConn) httpWrite(req *http.Request, rawHeaders http.Header, orde
 			ruri = host
 		}
 	}
-	if _, err = obj.w.WriteString(fmt.Sprintf("%s %s %s\r\n", req.Method, ruri, req.Proto)); err != nil {
+	if _, err = w.WriteString(fmt.Sprintf("%s %s %s\r\n", req.Method, ruri, req.Proto)); err != nil {
 		return
 	}
 	for _, kv := range tools.NewHeadersWithH1(orderHeaders, rawHeaders) {
-		if _, err = obj.w.WriteString(fmt.Sprintf("%s: %s\r\n", kv[0], kv[1])); err != nil {
+		if _, err = w.WriteString(fmt.Sprintf("%s: %s\r\n", kv[0], kv[1])); err != nil {
 			return
 		}
 	}
-	if _, err = obj.w.WriteString("\r\n"); err != nil {
+	if _, err = w.WriteString("\r\n"); err != nil {
 		return
 	}
 	if req.Body == nil {
-		err = obj.w.Flush()
+		err = w.Flush()
 		return
 	}
 	if chunked {
-		chunkedWriter := newChunkedWriter(obj.w)
+		chunkedWriter := newChunkedWriter(w)
 		if _, err = tools.Copy(chunkedWriter, req.Body); err != nil {
 			return
 		}
@@ -165,11 +172,11 @@ func (obj *clientConn) httpWrite(req *http.Request, rawHeaders http.Header, orde
 			return
 		}
 	} else {
-		if _, err = tools.Copy(obj.w, req.Body); err != nil {
+		if _, err = tools.Copy(w, req.Body); err != nil {
 			return
 		}
 	}
-	err = obj.w.Flush()
+	err = w.Flush()
 	return
 }
 
@@ -182,10 +189,10 @@ func (obj *clientBody) Read(p []byte) (n int, err error) {
 	return obj.r.Read(p)
 }
 func (obj *clientBody) Close() error {
-	obj.r.Close()
 	return obj.CloseWithError(nil)
 }
 func (obj *clientBody) CloseWithError(err error) error {
+	obj.r.Close()
 	obj.cnl(err)
 	return nil
 }
