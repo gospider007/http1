@@ -16,11 +16,10 @@ import (
 
 type rsp struct {
 	r   *http.Response
-	ctx context.Context
 	err error
 }
 
-type clientConn struct {
+type conn struct {
 	conn      net.Conn
 	r         *bufio.Reader
 	w         *bufio.Writer
@@ -30,9 +29,9 @@ type clientConn struct {
 	rsps      chan *rsp
 }
 
-func NewClientConn(preCtx context.Context, con net.Conn, closeFunc func(error)) *clientConn {
+func NewClientConn(preCtx context.Context, con net.Conn, closeFunc func(error)) *conn {
 	ctx, cnl := context.WithCancelCause(preCtx)
-	c := &clientConn{
+	c := &conn{
 		ctx:       ctx,
 		cnl:       cnl,
 		conn:      con,
@@ -44,28 +43,23 @@ func NewClientConn(preCtx context.Context, con net.Conn, closeFunc func(error)) 
 	go c.read()
 	return c
 }
-func (obj *clientConn) read() (err error) {
+func (obj *conn) read() (err error) {
 	defer func() {
 		if err != nil && err != tools.ErrNoErr {
 			obj.CloseWithError(err)
 		}
 	}()
 	for {
-		res, rerr := http.ReadResponse(obj.r, nil)
-		if rerr != nil {
-			err = rerr
-			select {
-			case obj.rsps <- &rsp{r: res, ctx: nil, err: err}:
-			case <-obj.ctx.Done():
-			}
-			return
+		res, err := http.ReadResponse(obj.r, nil)
+		if err != nil {
+			return err
 		}
 		if res.Body == nil {
 			res.Body = http.NoBody
 		}
 		var r *rsp
 		if res.Body == http.NoBody || res.StatusCode == 101 {
-			res.Body = NewClientBody(res.Body, obj, nil, nil)
+			res.Body = NewBody(res.Body, obj, nil, nil, nil)
 			r = &rsp{r: res, err: err}
 			select {
 			case obj.rsps <- r:
@@ -77,8 +71,8 @@ func (obj *clientConn) read() (err error) {
 			}
 		} else {
 			ctx, cnl := context.WithCancelCause(obj.ctx)
-			res.Body = NewClientBody(res.Body, obj, cnl, nil)
-			r = &rsp{r: res, ctx: ctx, err: err}
+			res.Body = NewBody(res.Body, obj, ctx, cnl, nil)
+			r = &rsp{r: res, err: err}
 			select {
 			case obj.rsps <- r:
 			case <-obj.ctx.Done():
@@ -108,7 +102,7 @@ func removeZone(host string) string {
 	return host[:j] + host[i:]
 }
 
-func (obj *clientConn) httpWrite(req *http.Request, rawHeaders http.Header, orderHeaders []interface {
+func (obj *conn) httpWrite(req *http.Request, rawHeaders http.Header, orderHeaders []interface {
 	Key() string
 	Val() any
 }) (err error) {
@@ -182,37 +176,47 @@ func HttpWrite(req *http.Request, w *bufio.Writer, rawHeaders http.Header, order
 }
 
 type Conn interface {
+	Context() context.Context
 	CloseWithError(err error) error
-	DoRequest(*http.Request, *Option) (*http.Response, context.Context, error)
+	DoRequest(*http.Request, *Option) (*http.Response, error)
 	Stream() io.ReadWriteCloser
 }
-type ClientBody struct {
+
+type Body struct {
 	writeDone chan struct{}
 	r         io.ReadCloser
 	c         Conn
+	ctx       context.Context
 	cnl       context.CancelCauseFunc
 }
 
-func NewClientBody(r io.ReadCloser, c Conn, cnl context.CancelCauseFunc, writeDone chan struct{}) *ClientBody {
-	return &ClientBody{
+func NewBody(r io.ReadCloser, c Conn, ctx context.Context, cnl context.CancelCauseFunc, writeDone chan struct{}) *Body {
+	return &Body{
 		r:         r,
 		c:         c,
+		ctx:       ctx,
 		cnl:       cnl,
 		writeDone: writeDone,
 	}
 }
 
-func (obj *ClientBody) SetWriteDone(writeDone chan struct{}) {
+func (obj *Body) SetWriteDone(writeDone chan struct{}) {
 	obj.writeDone = writeDone
 }
 
-func (obj *ClientBody) Read(p []byte) (n int, err error) {
+func (obj *Body) Read(p []byte) (n int, err error) {
 	return obj.r.Read(p)
 }
-func (obj *ClientBody) Close() error {
+func (obj *Body) Close() error {
 	return obj.CloseWithError(nil)
 }
-func (obj *ClientBody) CloseWithError(err error) error {
+func (obj *Body) Stream() io.ReadWriteCloser {
+	return obj.c.Stream()
+}
+func (obj *Body) Context() context.Context {
+	return obj.ctx
+}
+func (obj *Body) CloseWithError(err error) error {
 	if err != nil && err != tools.ErrNoErr {
 		obj.c.CloseWithError(errors.New("write not done"))
 	} else if obj.writeDone != nil {
@@ -229,7 +233,7 @@ func (obj *ClientBody) CloseWithError(err error) error {
 	return nil
 }
 
-func (obj *clientConn) DoRequest(req *http.Request, option *Option) (res *http.Response, ctx context.Context, err error) {
+func (obj *conn) DoRequest(req *http.Request, option *Option) (res *http.Response, err error) {
 	defer func() {
 		if err != nil {
 			obj.CloseWithError(tools.WrapError(err, "failed to send request"))
@@ -238,38 +242,44 @@ func (obj *clientConn) DoRequest(req *http.Request, option *Option) (res *http.R
 	var writeErr error
 	writeDone := make(chan struct{})
 	go func() {
+		defer close(writeDone)
 		writeErr = obj.httpWrite(req, req.Header.Clone(), option.OrderHeaders)
-		close(writeDone)
+		if writeErr != nil {
+			obj.CloseWithError(tools.WrapError(writeErr, "failed to httpWrite"))
+		}
 	}()
 	select {
 	case <-writeDone:
 		if writeErr != nil {
-			return nil, nil, writeErr
+			return nil, writeErr
 		}
 		select {
 		case <-req.Context().Done():
-			return nil, nil, req.Context().Err()
+			return nil, req.Context().Err()
 		case <-obj.ctx.Done():
-			return nil, nil, obj.ctx.Err()
+			return nil, context.Cause(obj.ctx)
 		case rsp := <-obj.rsps:
-			return rsp.r, rsp.ctx, rsp.err
+			return rsp.r, rsp.err
 		}
 	case <-req.Context().Done():
-		return nil, nil, req.Context().Err()
+		return nil, req.Context().Err()
 	case <-obj.ctx.Done():
-		return nil, nil, obj.ctx.Err()
+		return nil, context.Cause(obj.ctx)
 	case rsp := <-obj.rsps:
 		if rsp.err == nil {
-			rsp.r.Body.(*ClientBody).SetWriteDone(writeDone)
+			rsp.r.Body.(*Body).SetWriteDone(writeDone)
 		}
-		return rsp.r, rsp.ctx, rsp.err
+		return rsp.r, rsp.err
 	}
 }
 
-func (obj *clientConn) Close() error {
+func (obj *conn) Close() error {
 	return obj.CloseWithError(nil)
 }
-func (obj *clientConn) CloseWithError(err error) error {
+func (obj *conn) Context() context.Context {
+	return obj.ctx
+}
+func (obj *conn) CloseWithError(err error) error {
 	if obj.closeFunc != nil {
 		obj.closeFunc(err)
 	}
@@ -277,7 +287,7 @@ func (obj *clientConn) CloseWithError(err error) error {
 	return obj.conn.Close()
 }
 
-func (obj *clientConn) Stream() io.ReadWriteCloser {
+func (obj *conn) Stream() io.ReadWriteCloser {
 	return &websocketConn{
 		cnl: obj.cnl,
 		r:   obj.r,
