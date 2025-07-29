@@ -143,11 +143,11 @@ func HttpWrite(req *http.Request, w *bufio.Writer, rawHeaders http.Header, order
 			ruri = host
 		}
 	}
-	if _, err = w.WriteString(fmt.Sprintf("%s %s %s\r\n", req.Method, ruri, req.Proto)); err != nil {
+	if _, err = fmt.Fprintf(w, "%s %s %s\r\n", req.Method, ruri, req.Proto); err != nil {
 		return
 	}
 	for _, kv := range tools.NewHeadersWithH1(orderHeaders, rawHeaders) {
-		if _, err = w.WriteString(fmt.Sprintf("%s: %s\r\n", kv[0], kv[1])); err != nil {
+		if _, err = fmt.Fprintf(w, "%s: %s\r\n", kv[0], kv[1]); err != nil {
 			return
 		}
 	}
