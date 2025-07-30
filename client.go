@@ -178,7 +178,7 @@ func HttpWrite(req *http.Request, w *bufio.Writer, rawHeaders http.Header, order
 type Conn interface {
 	Context() context.Context
 	CloseWithError(err error) error
-	DoRequest(*http.Request, *Option) (*http.Response, error)
+	DoRequest(context.Context, *http.Request, *Option) (*http.Response, error)
 	Stream() io.ReadWriteCloser
 }
 
@@ -233,7 +233,7 @@ func (obj *Body) CloseWithError(err error) error {
 	return nil
 }
 
-func (obj *conn) DoRequest(req *http.Request, option *Option) (res *http.Response, err error) {
+func (obj *conn) DoRequest(ctx context.Context, req *http.Request, option *Option) (res *http.Response, err error) {
 	defer func() {
 		if err != nil {
 			obj.CloseWithError(tools.WrapError(err, "failed to send request"))
@@ -254,22 +254,22 @@ func (obj *conn) DoRequest(req *http.Request, option *Option) (res *http.Respons
 			return nil, writeErr
 		}
 		select {
-		case <-req.Context().Done():
-			return nil, req.Context().Err()
-		case <-obj.ctx.Done():
-			return nil, context.Cause(obj.ctx)
 		case rsp := <-obj.rsps:
 			return rsp.r, rsp.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-obj.ctx.Done():
+			return nil, context.Cause(obj.ctx)
 		}
-	case <-req.Context().Done():
-		return nil, req.Context().Err()
-	case <-obj.ctx.Done():
-		return nil, context.Cause(obj.ctx)
 	case rsp := <-obj.rsps:
 		if rsp.err == nil {
 			rsp.r.Body.(*Body).SetWriteDone(writeDone)
 		}
 		return rsp.r, rsp.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-obj.ctx.Done():
+		return nil, context.Cause(obj.ctx)
 	}
 }
 
