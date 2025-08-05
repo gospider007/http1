@@ -36,6 +36,13 @@ func readCRLFWithString(r *bufio.Reader) (string, error) {
 	allCon := tools.BytesToString(con)
 	return allCon, err
 }
+func readHeadersWithKv(line string) (string, string, error) {
+	kvs := strings.SplitN(line, ":", 2)
+	if len(kvs) != 2 {
+		return "", "", errors.New("invalid header line: " + line)
+	}
+	return strings.TrimSpace(kvs[0]), strings.TrimSpace(kvs[1]), nil
+}
 func readHeaders(r *bufio.Reader) (http.Header, error) {
 	headers := make(http.Header)
 	for {
@@ -46,11 +53,11 @@ func readHeaders(r *bufio.Reader) (http.Header, error) {
 		if line == "\r\n" {
 			return headers, nil
 		}
-		kvs := strings.SplitN(line, ": ", 2)
-		if len(kvs) != 2 {
-			return headers, errors.New("invalid header line: " + line)
+		key, val, err := readHeadersWithKv(strings.TrimRight(line, "\r\n"))
+		if err != nil {
+			return headers, err
 		}
-		headers.Add(kvs[0], strings.TrimRight(kvs[1], "\r\n"))
+		headers.Add(key, val)
 	}
 }
 func writeHeaders(headers http.Header, w io.Writer) (err error) {

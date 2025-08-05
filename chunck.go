@@ -108,14 +108,14 @@ func (cr *chunkedReaders) readTrailer() (err error) {
 		if line == "" {
 			return nil
 		}
-		parts := strings.SplitN(line, ": ", 2)
-		if len(parts) != 2 {
-			return errors.New("invalid trailer line")
+		key, val, err := readHeadersWithKv(line)
+		if err != nil {
+			return err
 		}
 		if cr.trailer == nil {
 			cr.trailer = make(http.Header)
 		}
-		cr.trailer.Add(parts[0], parts[1])
+		cr.trailer.Add(key, val)
 	}
 }
 func (cr *chunkedReaders) Close() error {
