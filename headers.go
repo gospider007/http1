@@ -43,6 +43,7 @@ func readHeadersWithKv(line string) (string, string, error) {
 	}
 	return strings.TrimSpace(kvs[0]), strings.TrimSpace(kvs[1]), nil
 }
+
 func readHeaders(r *bufio.Reader) (http.Header, error) {
 	headers := make(http.Header)
 	for {
