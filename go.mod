@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/gospider007/tools v0.0.0-20250730001814-2c13a4717064
-	golang.org/x/net v0.42.0
+	golang.org/x/net v0.43.0
 )
 
 require (
@@ -28,6 +28,6 @@ require (
 	github.com/spf13/afero v1.14.0 // indirect
 	github.com/ulikunitz/xz v0.5.12 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
-	golang.org/x/image v0.29.0 // indirect
-	golang.org/x/text v0.27.0 // indirect
+	golang.org/x/image v0.30.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 )

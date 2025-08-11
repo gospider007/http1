@@ -84,7 +84,7 @@ func (cr *chunkedReaders) initLen() (err error) {
 	if err != nil {
 		return err
 	}
-	cr.i, err = parseHexUint(con[:bytes.Index(con, []byte("\r\n"))])
+	cr.i, err = parseHexUint(bytes.TrimRight(con, "\r\n"))
 	if err != nil {
 		return errors.New("invalid chunked encoding")
 	}

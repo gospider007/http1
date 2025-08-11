@@ -50,7 +50,7 @@ func (obj *conn) read() (err error) {
 	for {
 		res, err := ReadResponse(obj.r)
 		if err != nil {
-			return err
+			return tools.WrapError(err, "read response failed")
 		}
 		if res.Body == nil {
 			res.Body = http.NoBody
