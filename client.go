@@ -18,25 +18,23 @@ type rsp struct {
 }
 
 type conn struct {
-	conn      net.Conn
-	r         *bufio.Reader
-	w         *bufio.Writer
-	closeFunc func(error)
-	ctx       context.Context
-	cnl       context.CancelCauseFunc
-	rsps      chan *rsp
+	conn net.Conn
+	r    *bufio.Reader
+	w    *bufio.Writer
+	ctx  context.Context
+	cnl  context.CancelCauseFunc
+	rsps chan *rsp
 }
 
-func NewConn(preCtx context.Context, con net.Conn, closeFunc func(error)) *conn {
+func NewConn(preCtx context.Context, con net.Conn) *conn {
 	ctx, cnl := context.WithCancelCause(preCtx)
 	c := &conn{
-		ctx:       ctx,
-		cnl:       cnl,
-		conn:      con,
-		closeFunc: closeFunc,
-		rsps:      make(chan *rsp),
-		r:         bufio.NewReader(con),
-		w:         bufio.NewWriter(con),
+		ctx:  ctx,
+		cnl:  cnl,
+		conn: con,
+		rsps: make(chan *rsp),
+		r:    bufio.NewReader(con),
+		w:    bufio.NewWriter(con),
 	}
 	go c.read()
 	return c
@@ -226,34 +224,32 @@ func (obj *conn) Context() context.Context {
 	return obj.ctx
 }
 func (obj *conn) CloseWithError(err error) error {
-	if obj.closeFunc != nil {
-		obj.closeFunc(err)
-	}
 	obj.cnl(err)
 	return obj.conn.Close()
 }
 
 func (obj *conn) Stream() io.ReadWriteCloser {
 	return &websocketConn{
-		cnl: obj.cnl,
-		r:   obj.r,
-		w:   obj.conn,
+		con: obj,
 	}
 }
 
 type websocketConn struct {
-	r   io.Reader
-	w   io.WriteCloser
-	cnl context.CancelCauseFunc
+	con *conn
 }
 
 func (obj *websocketConn) Read(p []byte) (n int, err error) {
-	return obj.r.Read(p)
+	return obj.con.r.Read(p)
 }
 func (obj *websocketConn) Write(p []byte) (n int, err error) {
-	return obj.w.Write(p)
+	n, err = obj.con.w.Write(p)
+	if err != nil {
+		return
+	}
+	err = obj.con.w.Flush()
+	return
 }
+
 func (obj *websocketConn) Close() error {
-	obj.cnl(nil)
-	return obj.w.Close()
+	return obj.con.CloseWithError(nil)
 }

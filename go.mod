@@ -3,7 +3,7 @@ module github.com/gospider007/http1
 go 1.24.0
 
 require (
-	github.com/gospider007/tools v0.0.0-20250730001814-2c13a4717064
+	github.com/gospider007/tools v0.0.0-20250811070046-82a1a8f96823
 	golang.org/x/net v0.43.0
 )
 
