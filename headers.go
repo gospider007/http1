@@ -31,6 +31,7 @@ func readCRLFWithBytes(r *bufio.Reader) ([]byte, error) {
 		}
 	}
 }
+
 func readCRLFWithString(r *bufio.Reader) (string, error) {
 	con, err := readCRLFWithBytes(r)
 	allCon := tools.BytesToString(con)

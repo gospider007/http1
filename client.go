@@ -18,14 +18,21 @@ type rsp struct {
 }
 
 type conn struct {
-	conn net.Conn
-	r    *bufio.Reader
-	w    *bufio.Writer
-	ctx  context.Context
-	cnl  context.CancelCauseFunc
-	rsps chan *rsp
+	conn        net.Conn
+	r           *bufio.Reader
+	w           *bufio.Writer
+	ctx         context.Context
+	cnl         context.CancelCauseFunc
+	rsps        chan *rsp
+	bodyContext context.Context
 }
 
+func (obj *conn) SetBodyContext(ctx context.Context) {
+	obj.bodyContext = ctx
+}
+func (obj *conn) BodyContext() context.Context {
+	return obj.bodyContext
+}
 func NewConn(preCtx context.Context, con net.Conn) *conn {
 	ctx, cnl := context.WithCancelCause(preCtx)
 	c := &conn{
@@ -39,6 +46,7 @@ func NewConn(preCtx context.Context, con net.Conn) *conn {
 	go c.read()
 	return c
 }
+
 func (obj *conn) read() (err error) {
 	defer func() {
 		if err != nil && err != tools.ErrNoErr {
@@ -119,6 +127,8 @@ type Conn interface {
 	CloseWithError(err error) error
 	DoRequest(context.Context, *http.Request, *Option) (*http.Response, error)
 	Stream() io.ReadWriteCloser
+	BodyContext() context.Context
+	SetBodyContext(context.Context)
 }
 
 type Body struct {
@@ -131,6 +141,7 @@ type Body struct {
 }
 
 func NewBody(r io.ReadCloser, c Conn, ctx context.Context, cnl context.CancelCauseFunc, close bool, writeDone chan struct{}) *Body {
+	c.SetBodyContext(ctx)
 	return &Body{
 		close:     close,
 		r:         r,
@@ -183,6 +194,13 @@ func (obj *conn) DoRequest(ctx context.Context, req *http.Request, option *Optio
 			obj.CloseWithError(tools.WrapError(err, "failed to send request"))
 		}
 	}()
+	if bodyContext := obj.BodyContext(); bodyContext != nil {
+		select {
+		case <-bodyContext.Done():
+		default:
+			return nil, errors.New("body is busy")
+		}
+	}
 	var writeErr error
 	writeDone := make(chan struct{})
 	go func() {
@@ -211,7 +229,7 @@ func (obj *conn) DoRequest(ctx context.Context, req *http.Request, option *Optio
 		}
 		return rsp.r, rsp.err
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, context.Cause(ctx)
 	case <-obj.ctx.Done():
 		return nil, context.Cause(obj.ctx)
 	}
