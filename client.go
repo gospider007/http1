@@ -127,8 +127,6 @@ type Conn interface {
 	CloseWithError(err error) error
 	DoRequest(context.Context, *http.Request, *Option) (*http.Response, error)
 	Stream() io.ReadWriteCloser
-	BodyContext() context.Context
-	SetBodyContext(context.Context)
 }
 
 type Body struct {
@@ -141,7 +139,6 @@ type Body struct {
 }
 
 func NewBody(r io.ReadCloser, c Conn, ctx context.Context, cnl context.CancelCauseFunc, close bool, writeDone chan struct{}) *Body {
-	c.SetBodyContext(ctx)
 	return &Body{
 		close:     close,
 		r:         r,
@@ -194,13 +191,6 @@ func (obj *conn) DoRequest(ctx context.Context, req *http.Request, option *Optio
 			obj.CloseWithError(tools.WrapError(err, "failed to send request"))
 		}
 	}()
-	if bodyContext := obj.BodyContext(); bodyContext != nil {
-		select {
-		case <-bodyContext.Done():
-		default:
-			return nil, errors.New("body is busy")
-		}
-	}
 	var writeErr error
 	writeDone := make(chan struct{})
 	go func() {
