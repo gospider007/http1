@@ -66,7 +66,17 @@ func ReadResponse(r *bufio.Reader) (*http.Response, error) {
 	return resp, nil
 }
 
-func WriteResponse(resp *http.Response, w io.Writer) (err error) {
+func WriteResponse(resp *http.Response, w io.Writer, encoding string) (err error) {
+	var arch tools.Compression
+	respEncoding := resp.Header.Get("Content-Encoding")
+	if respEncoding == "" && encoding != "" {
+		arch, err = tools.NewRawCompression(encoding)
+		if err != nil {
+			return err
+		}
+		resp.ContentLength = -1
+		resp.Header.Set("Content-Encoding", encoding)
+	}
 	text := resp.Status
 	if text == "" {
 		text = http.StatusText(resp.StatusCode)
@@ -79,18 +89,36 @@ func WriteResponse(resp *http.Response, w io.Writer) (err error) {
 	if _, err := fmt.Fprintf(w, "HTTP/%d.%d %03d %s\r\n", 1, 1, resp.StatusCode, text); err != nil {
 		return err
 	}
-
 	if resp.ContentLength == -1 {
 		resp.Header.Set("Transfer-Encoding", "chunked")
 		resp.Header.Del("Content-Length")
-		if err = writeHeaders(resp.Header, w); err != nil {
-			return
-		}
-		if _, err := io.WriteString(w, "\r\n"); err != nil {
-			return err
+	}
+
+	if err = writeHeaders(resp.Header, w); err != nil {
+		return
+	}
+	if _, err := io.WriteString(w, "\r\n"); err != nil {
+		return err
+	}
+	if resp.ContentLength == -1 {
+		var chunkR io.Reader
+		if arch != nil {
+			pr, pw := io.Pipe()
+			chunkR = pr
+			archWriter, err := arch.OpenWriter(pw)
+			if err != nil {
+				return err
+			}
+			go func() {
+				_, cerr := io.Copy(archWriter, resp.Body)
+				pw.CloseWithError(cerr)
+				archWriter.Close()
+			}()
+		} else {
+			chunkR = resp.Body
 		}
 		chunkW := httputil.NewChunkedWriter(w)
-		if _, err = tools.Copy(chunkW, resp.Body); err != nil {
+		if _, err = tools.Copy(chunkW, chunkR); err != nil {
 			return err
 		}
 		if err = chunkW.Close(); err != nil {
@@ -100,12 +128,6 @@ func WriteResponse(resp *http.Response, w io.Writer) (err error) {
 			return err
 		}
 	} else {
-		if err = writeHeaders(resp.Header, w); err != nil {
-			return
-		}
-		if _, err := io.WriteString(w, "\r\n"); err != nil {
-			return err
-		}
 		if _, err = tools.Copy(w, resp.Body); err != nil {
 			return err
 		}

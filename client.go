@@ -153,9 +153,17 @@ func (obj *Body) SetWriteDone(writeDone chan struct{}) {
 	obj.writeDone = writeDone
 }
 
+func (obj *Body) SetReader(r io.ReadCloser) {
+	obj.r = r
+}
+func (obj *Body) GetReader() io.ReadCloser {
+	return obj.r
+}
+
 func (obj *Body) Read(p []byte) (n int, err error) {
 	return obj.r.Read(p)
 }
+
 func (obj *Body) Close() error {
 	return obj.CloseWithError(nil)
 }
