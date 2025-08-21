@@ -193,6 +193,10 @@ func (obj *Body) CloseWithError(err error) error {
 	return nil
 }
 
+func (obj *Body) Conn() Conn {
+	return obj.c
+}
+
 func (obj *conn) DoRequest(ctx context.Context, req *http.Request, option *Option) (res *http.Response, err error) {
 	defer func() {
 		if err != nil {
