@@ -203,36 +203,25 @@ func (obj *conn) DoRequest(ctx context.Context, req *http.Request, option *Optio
 			obj.CloseWithError(tools.WrapError(err, "failed to send request"))
 		}
 	}()
-	var writeErr error
 	writeDone := make(chan struct{})
 	go func() {
 		defer close(writeDone)
-		writeErr = obj.httpWrite(req, req.Header.Clone(), option.OrderHeaders)
+		writeErr := obj.httpWrite(req, req.Header.Clone(), option.OrderHeaders)
 		if writeErr != nil {
 			obj.CloseWithError(tools.WrapError(writeErr, "failed to httpWrite"))
 		}
 	}()
 	select {
-	case <-writeDone:
-		if writeErr != nil {
-			return nil, writeErr
-		}
-		select {
-		case rsp := <-obj.rsps:
-			return rsp.r, rsp.err
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-obj.ctx.Done():
-			return nil, context.Cause(obj.ctx)
-		}
 	case rsp := <-obj.rsps:
 		if rsp.err == nil {
 			rsp.r.Body.(*Body).SetWriteDone(writeDone)
 		}
 		return rsp.r, rsp.err
 	case <-ctx.Done():
+		obj.CloseWithError(context.Cause(ctx))
 		return nil, context.Cause(ctx)
 	case <-obj.ctx.Done():
+		obj.CloseWithError(context.Cause(obj.ctx))
 		return nil, context.Cause(obj.ctx)
 	}
 }

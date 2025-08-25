@@ -25,7 +25,7 @@ require (
 	github.com/minio/minlz v1.0.1 // indirect
 	github.com/nwaples/rardecode/v2 v2.1.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
-	github.com/sorairolake/lzip-go v0.3.7 // indirect
+	github.com/sorairolake/lzip-go v0.3.8 // indirect
 	github.com/spf13/afero v1.14.0 // indirect
 	github.com/ulikunitz/xz v0.5.13 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
